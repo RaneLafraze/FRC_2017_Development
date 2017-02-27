@@ -35,6 +35,14 @@ class gmDriveControl
         motors_s(float arg_r, float arg_l, long arg_ts) : r(arg_r), l(arg_l), ts(arg_ts) {}
     };
 
+    struct position_s
+    {
+    	high_resolution_clock::time_point when;
+    	float rEnc, lEnc; // Values of the left and right side encoders
+    	// Don't think ts is needed as the duration is already in motor_s
+
+        position_s(float arg_rEnc, float arg_lEnc) : when(high_resolution_clock::now()), rEnc(arg_rEnc), lEnc(arg_lEnc) {}    };
+
   private:
     //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     // These values can be used to 'tune' the drive's response
