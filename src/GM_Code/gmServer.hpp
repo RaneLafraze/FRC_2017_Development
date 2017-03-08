@@ -8,6 +8,7 @@
 using json = nlohmann::json;
 
 // See Robot.cpp for these functions:
+extern void addRobotCommand(json cmd);
 extern json getDriveMacros();
 extern void putDriveMacros(json &macros_j);
 
@@ -22,7 +23,7 @@ class gmServer
   public:
     static void StartListening()
     {
-    	const int msg_getDrive = 1001, msg_getMacros = 1002, msg_putMacros = 1003;
+    	const int msg_getDrive = 1001, msg_getMacros = 1002, msg_putMacros = 1003, msg_addCmd = 1004;
 
         TCPAcceptor *acceptor = new TCPAcceptor(5800);
 
@@ -34,6 +35,10 @@ class gmServer
 
                 if (stream != NULL)
                 {
+                	char str[80];
+                	sprintf(str, "Data Received");
+                	DriverStation::ReportError(str);
+
                     ssize_t len;
                     std::vector<char> buffer;
                     char line[256];
@@ -52,8 +57,18 @@ class gmServer
                     //std::string message(buffer.begin(), buffer.end());
 					json msg_r = json::parse(buffer);
 
-					switch ((int)msg_r["id"])
+					switch ((int)msg_r["id"]) //Look in the start of this function for the ID #'s
 					{
+						case msg_addCmd:
+							{
+								char str[80];
+								sprintf(str,"Command Received : Size = %d", size);
+								DriverStation::ReportError(str);
+
+								addRobotCommand(msg_r);
+							}
+							break;
+
 						case msg_getDrive:
 							break;
 

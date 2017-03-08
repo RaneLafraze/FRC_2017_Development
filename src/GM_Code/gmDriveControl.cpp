@@ -1,7 +1,6 @@
 
 #include "gmDriveControl.h"
 #include "gmCommon.h"
-#include <math.h>
 
 #include <PowerDistributionPanel.h>
 
@@ -10,7 +9,7 @@ extern bool isButtonChange();
 
 namespace GM_Code
 {
-float joystickXDeadband = .15;
+float joystickXDeadband = .40;
 float joystickYDeadband = .15;
 float joystickZDeadband = .40;
 gmDriveControl::dspy_s gmDriveControl::dspyValues;
@@ -186,6 +185,11 @@ bool gmDriveControl::saveMacro(int id, const high_resolution_clock::time_point &
     //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     // Create a new macro by copying all 'controls' that occurred
     // between the bgn and end time_points to a new deque.
+	//
+	// macro2 is an array (size of 2) that contains a deque of
+	// pointers to either motor_s or position_s. motor_s refers
+	// to the time the motors are supposed to run (Phil's version)
+	// position_s is the value of the encoders and gyro.
     //............................................................
     shared_ptr<deque<shared_ptr<motors_s>>> macro(new deque<shared_ptr<motors_s>>);
 

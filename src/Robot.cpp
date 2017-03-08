@@ -21,6 +21,7 @@ using namespace GM_Code;
 #include <SmartDashboard/SmartDashboard.h>
 
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <cmath>
@@ -32,6 +33,35 @@ using namespace std;
 #include <chrono>
 using namespace std::chrono;
 
+deque<json> cmdDeque;
+std::mutex cmdMutex;
+
+void addRobotCommand(json cmd)
+{
+	unique_lock<mutex> lockit(cmdMutex);
+	cmdDeque.push_back(cmd);
+
+	char str[80];
+	sprintf(str, "Added Robot Command");
+	DriverStation::ReportError(str);
+}
+
+bool isRobotCommand()
+{
+	unique_lock<mutex> lockit(cmdMutex);
+	return !cmdDeque.empty();
+}
+
+json getRobotCommand()
+{
+	unique_lock<mutex> lockit(cmdMutex);
+	json j;
+	if (!cmdDeque.empty())
+		j = cmdDeque.front();
+	cmdDeque.pop_front();
+	return j;
+}
+
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 // Robot -- Main class; runs the robot.
 // -----
@@ -40,6 +70,7 @@ using namespace std::chrono;
 //............................................................
 class Robot : public frc::SampleRobot
 {
+
 	static const Robot* this_robot;
 
 	CANTalon* leftDriveMaster = new CANTalon(1);
@@ -56,7 +87,7 @@ class Robot : public frc::SampleRobot
 	VictorSP* climbMotor = new VictorSP(8);
 
 	Compressor* compressor = new Compressor(0);
-	Solenoid* shifterSolenoid = new Solenoid(1);
+	Solenoid* shifterSolenoid = new Solenoid(0);
 
 	RobotDrive* drive = new RobotDrive(leftDriveMaster, rightDriveMaster); //CANTalon
 
@@ -72,6 +103,7 @@ class Robot : public frc::SampleRobot
 	// until the program is terminated so it doesn't matter.
 	// My understanding of what's best here is not perfect. (!)
 	//............................................................
+
 	std::unique_ptr<gmJoystick> driveStick {new gmJoystick(0)};
 	std::unique_ptr<gmJoystick> shootStick {new gmJoystick(1)};
 
@@ -86,6 +118,12 @@ class Robot : public frc::SampleRobot
     int recording = 0;
     high_resolution_clock::time_point macroBgn, macroEnd;
 
+    double autoDistance = 95.3;
+    double autoDistance2 = 35.25;
+    int autoCounter = 0;
+	bool ticksReached = false;
+	bool angleReached = false;
+
     void print(string s)
 	{
     	//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -96,9 +134,12 @@ class Robot : public frc::SampleRobot
     }
     friend json getDriveMacros();
     friend void putDriveMacros(json &macros);
+    friend json readDriveMacros();
+    friend void saveDriveMacros(json &macros);
     friend bool isButtonChange();
 
   public:
+
 
     Robot()
     {
@@ -114,6 +155,7 @@ class Robot : public frc::SampleRobot
     void RobotInit()
     {
 
+        json macros = getDriveMacros();
     	leftDriveSlave1->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
     	leftDriveSlave2->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
     	rightDriveSlave1->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
@@ -129,8 +171,23 @@ class Robot : public frc::SampleRobot
     	rightDriveSlave2->SetFeedbackDevice(CANTalon::FeedbackDevice::QuadEncoder);
     	rightDriveSlave2->ConfigEncoderCodesPerRev(360);
     	rightDriveSlave2->SetPosition(0);
+    	shooterMotor->SetControlMode(CANSpeedController::kVoltage);
 
 		this->print("RobotInit");
+
+		std::string s = macros.dump();
+		if (s.length() > 4)
+		{
+			char str[80];
+			sprintf(str, "Macros size = %d", s.length());
+			DriverStation::ReportError(str);
+
+			putDriveMacros(macros);
+		}
+		else
+		{
+			DriverStation::ReportError("Macro file doesn't exist!");
+		}
 
 		//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 		// It takes a bit before the navX-MXP is fully running, so
@@ -201,16 +258,126 @@ class Robot : public frc::SampleRobot
 		// forced on during autonomous. Better stay 'responsive'!
 		//............................................................
 		drive->SetSafetyEnabled(true);
-
+		shifterSolenoid->Set(true);
+		// float yawAngle = 0.0;   // Not used
+		float yawThreshold = .5;
+		// yawAngle = dedRec->getYawAngle();
+		leftDriveMaster->SetPosition(0);
+		rightDriveSlave2->SetPosition(0);
+		double ratio = 0.1300752291666667;
+		double error = 0.2930555;
+		double autoTickGoal = ratio * autoDistance;
+		double autoTickGoal2 = ratio * autoDistance2;
+		double autoAngleGoal = 0.0;
+		int nloops = 0;
 		//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 		// The robot heading is relative to its position/orientation
 		// at the start of autonomous. So reset it here.
 		//............................................................
 
-		while (IsAutonomous() && IsEnabled())
+		while (IsAutonomous() && IsEnabled() && autoCounter < 1)
 		{
-			const int macro_mask = 0xFC0;
-			int macro_id = (7 & macro_mask) >> 6;
+
+
+			/*if (-leftDriveMaster->GetPosition() < autoTickGoal)
+			{
+				drive->SetLeftRightMotorOutputs(-.2, -.2);
+
+				if (dedRec->getYawAngle() < yawAngle - yawThreshold)
+				{
+					//increase left motor speed
+					drive->SetLeftRightMotorOutputs(-.3, -.2);
+				}
+				else if (dedRec->getYawAngle() > yawAngle + yawThreshold)
+				{
+					//increase right motor speed
+					drive->SetLeftRightMotorOutputs(-.2, -.3);
+				}
+			}
+			else if (-leftDriveMaster->GetPosition() > autoTickGoal)
+			{
+				drive->SetLeftRightMotorOutputs(0,0);
+			}*/
+
+			if (-leftDriveMaster->GetPosition() < autoTickGoal && ticksReached == false)
+			{
+				drive->SetLeftRightMotorOutputs(-.2, -.2);
+
+				// Here, autoAngleGoal = 0.0
+				if (dedRec->getYawAngle() < autoAngleGoal - yawThreshold)
+				{
+					//increase left motor speed
+					drive->SetLeftRightMotorOutputs(-.3, -.2);
+				}
+				else if (dedRec->getYawAngle() > autoAngleGoal + yawThreshold)
+				{
+					//increase right motor speed
+					drive->SetLeftRightMotorOutputs(-.2, -.3);
+				}
+
+				else if (-leftDriveMaster->GetPosition() > autoTickGoal)
+				{
+					ticksReached = true;
+					autoAngleGoal = 60.0; // Set to 60 degrees for the next part of Autonomous
+				}
+			}
+			if (ticksReached == true && dedRec->getYawAngle() < autoAngleGoal && angleReached == false)
+			{
+					drive->SetLeftRightMotorOutputs(-.1,.1);
+			}
+			else if (dedRec->getYawAngle() > autoAngleGoal)
+			{
+				// Loop until the robot is at 60 degrees
+				while(dedRec->getYawAngle() < autoAngleGoal + yawThreshold || dedRec->getYawAngle() > autoAngleGoal - yawThreshold)
+				{
+					if (dedRec->getYawAngle() < autoAngleGoal - yawThreshold)
+					{
+						//increase left motor speed
+						drive->SetLeftRightMotorOutputs(-.3, -.2);
+					}
+					else if (dedRec->getYawAngle() > autoAngleGoal + yawThreshold)
+					{
+
+					//increase right motor speed
+						drive->SetLeftRightMotorOutputs(-.2, -.3);
+					}
+					// Once the robot is at 60 degrees, the loop will terminate
+				}
+
+				angleReached = true;
+				leftDriveMaster->SetPosition(0);
+			}
+
+
+			if (angleReached == true && -leftDriveMaster->GetPosition() < autoTickGoal2)
+			{
+					drive->SetLeftRightMotorOutputs(-.2, -.2);
+
+					// Here, autoAngleGoal = 60 degrees
+					if (dedRec->getYawAngle() < autoAngleGoal - yawThreshold)
+					{
+						//increase left motor speed
+						drive->SetLeftRightMotorOutputs(-.3, -.2);
+					}
+					else if (dedRec->getYawAngle() > autoAngleGoal + yawThreshold)
+					{
+					//increase right motor speed
+						drive->SetLeftRightMotorOutputs(-.2, -.3);
+					}
+
+					else if (angleReached == true && -leftDriveMaster->GetPosition() > autoTickGoal2)
+				{
+					drive->SetLeftRightMotorOutputs(0,0);
+				}
+			}
+			if (0 == (nloops++ % 200))
+			{
+				char str[80];
+				sprintf(str,"Yaw %f", dedRec->getYawAngle());
+				DriverStation::ReportError(str);
+			}
+
+			/*int macro_id = 1;
 			if (driveControl->isMacro(macro_id)) // ... Else, play the macro, if it exists.
 			{
 				char str[80];
@@ -226,13 +393,15 @@ class Robot : public frc::SampleRobot
 				//............................................................
 				std::thread macro_thread([this, macro_id]() {
 					driveControl->playMacro(macro_id, drive);
+					autoCounter++;
 				});
 				macro_thread.join();
 
 				sprintf(str, "Done playing macro %d", macro_id);
+				this->print(autoCounter + " times");
 				DriverStation::ReportError(str);
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));*/
 		}
 		this->print("Autonomous End");
     }
@@ -243,25 +412,78 @@ class Robot : public frc::SampleRobot
 
 		drive->SetSafetyEnabled(true);
 		int nloops = 0;
+		int reset = 0;
 		while (IsOperatorControl() && IsEnabled())
 		{
+
+			//This is for the commands sent from the Jetson!
+			if(!action_running && isRobotCommand())
+			{
+				char str[80];
+				sprintf(str, "Command Executing");
+				DriverStation::ReportError(str);
+
+				while(isRobotCommand())
+				{
+					json cmd = getRobotCommand();
+					int ms = cmd["duration"];
+					float motorL = cmd["motorL"];
+					float motorR = cmd["motorR"];
+
+					driveControl->setMotors(drive, motorL, motorR);
+					std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+				}
+			}
 
 			compressor->Start();
 			//compressor->SetClosedLoopControl(true);
 			int buttons = driveStick->getJoystickButtons();
 
 			int shiftButtonDriveStick = driveStick->getJoystickButton(5);
-			int shootButtonShootStick = driveStick->getJoystickButton(1);
-			int intakeButtonShootStick = driveStick->getJoystickButton(3);
-			int climbButtonDriveStick = driveStick->getJoystickButton(4);
+			int shootButtonShootStick = shootStick->getJoystickButton(1);
+			int intakeButtonShootStick = shootStick->getJoystickButton(2);
+			int climbButtonDriveStick = driveStick->getJoystickButton(3);
+			int roll = shootStick->getJoystickButton(4);
+			int driveStraightButtonDriveStick = driveStick->getJoystickButton(1);
 
+			if (driveStraightButtonDriveStick == 1)
+			{
+				float yawAngle = 0.0;
+				float yawThreshold = 1.0;
+
+				if (reset < 1)
+					{
+						yawAngle = dedRec->getYawAngle();
+						reset++;
+					}
+
+				drive->SetLeftRightMotorOutputs(-.2, -.225);
+
+				if (dedRec->getYawAngle() < yawAngle - yawThreshold)
+				{
+					//increase left motor speed
+					drive->SetLeftRightMotorOutputs(-.3, -.2);
+
+				}
+				else if (dedRec->getYawAngle() > yawAngle + yawThreshold)
+				{
+					//increase right motor speed
+					drive->SetLeftRightMotorOutputs(-.2, -.3);
+				}
+
+			}
+			else
+			{
+				reset = 0;
+			}
 			//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-			// Activate solenoid if button 1 on driveStick
+			// Activate solenoid if button 2 on driveStick
 			// is pressed. On release deactivate solenoid.
 			//..................................................
 
 			if (shiftButtonDriveStick == 1)
 			{
+
 				shifterSolenoid->Set(true);
 			}
 			else if (shiftButtonDriveStick == 0)
@@ -276,15 +498,22 @@ class Robot : public frc::SampleRobot
 
 			if (shootButtonShootStick == 1)
 			{
-				shooterMotor->Set(0.9);
+
+				shooterMotor->Set(9.0);
+				//shooterMotor->Set(0.9);
 				intakeMotor1->Set(-1);
 				intakeMotor2->Set(-1);
-				intakeMotor3->Set(-1);
+				intakeMotor3->Set(-.90);
 			}
 
 			//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 			// Run intake motors if button 2 on either joystick is pressed
 			//....................................................
+			if (roll == 1)
+			{
+
+				shooterMotor->Set(9.0);
+			}
 
 			if (intakeButtonShootStick == 1)
 			{
@@ -307,7 +536,7 @@ class Robot : public frc::SampleRobot
 			// Check if button is pressed, if not set motors to 0
 			//....................................................
 
-			if ((shootButtonShootStick == 0 && intakeButtonShootStick == 0) && (climbButtonDriveStick == 0))
+			if ((shootButtonShootStick == 0 && intakeButtonShootStick == 0) && (climbButtonDriveStick == 0) && (roll == 0))
 			{
 				shooterMotor->Set(0);
 				intakeMotor1->Set(0);
@@ -459,6 +688,8 @@ class Robot : public frc::SampleRobot
 					});
 					auto_thread.detach();
 				}
+
+
 			}
 			lastButtons = buttons; // ... (L)
 			//========================================
@@ -474,7 +705,7 @@ class Robot : public frc::SampleRobot
 			driveControl->addInput(x, y, z, throttle);
 
 			float motorR, motorL;
-			if (driveControl->getMotor(motorR, motorL))
+			if (driveControl->getMotor(motorR, motorL) && driveStraightButtonDriveStick == 0)
 			{
 				driveControl->setMotors(drive, motorL, motorR);
 			}
@@ -576,6 +807,31 @@ void putDriveMacros(json &macros_j)
 		Robot::this_robot->driveControl->putMacro(i["id"], macro);
 	}
 }
+
+const string filename = "./robot_macros.json";
+
+json readDriveMacros()
+{
+	json macros_j;
+	ifstream file(filename);
+	if (file.is_open())
+	{
+		file >> macros_j;
+		file.close();
+	}
+	return macros_j;
+}
+
+void writeDriveMacros(json &macros_j)
+{
+	ofstream file(filename);
+	if (file.is_open())
+	{
+		file << macros_j;
+		file.close();
+	}
+}
+
 
 bool isButtonChange()
 {
