@@ -13,7 +13,7 @@
 #include "./GM_Code/gmServer.hpp"
 #include "./GM_Code/gmDedRec.hpp"
 using namespace GM_Code;
-#include "CANTalon.h"
+#include "./ctre/phoenix/MotorControl/CAN/TalonSRX.h"
 #include "WPILib.h"
 #include <SampleRobot.h>
 #include <DriverStation.h>
@@ -32,6 +32,8 @@ using namespace GM_Code;
 using namespace std;
 #include <chrono>
 using namespace std::chrono;
+using namespace CTRE::MotorControl::CAN;
+
 
 deque<json> cmdDeque;
 std::mutex cmdMutex;
@@ -73,13 +75,15 @@ class Robot : public frc::SampleRobot
 
 	static const Robot* this_robot;
 
-	CANTalon* leftDriveMaster = new CANTalon(1);
-	CANTalon* rightDriveMaster = new CANTalon(4);
-	CANTalon* leftDriveSlave1 = new CANTalon(2);
-	CANTalon* leftDriveSlave2 = new CANTalon(3);
-	CANTalon* rightDriveSlave1 = new CANTalon(5);
-	CANTalon* rightDriveSlave2 = new CANTalon(6);
-	CANTalon* shooterMotor = new CANTalon(7);
+	// Possible names of the new TalonSRX
+	TalonSRX t;
+	TalonSRX* leftDriveMaster = new TalonSRX(1);
+	TalonSRX* rightDriveMaster = new TalonSRX(4);
+	TalonSRX* leftDriveSlave1 = new TalonSRX(2);
+	TalonSRX* leftDriveSlave2 = new TalonSRX(3);
+	TalonSRX* rightDriveSlave1 = new TalonSRX(5);
+	TalonSRX* rightDriveSlave2 = new TalonSRX(6);
+	TalonSRX* shooterMotor = new TalonSRX(7);
 
 	VictorSP* intakeMotor1 = new VictorSP(9);
 	VictorSP* intakeMotor2 = new VictorSP(5);
@@ -89,7 +93,7 @@ class Robot : public frc::SampleRobot
 	Compressor* compressor = new Compressor(0);
 	Solenoid* shifterSolenoid = new Solenoid(0);
 
-	RobotDrive* drive = new RobotDrive(leftDriveMaster, rightDriveMaster); //CANTalon
+	RobotDrive* drive = new RobotDrive(leftDriveMaster, rightDriveMaster); //TalonSRX
 
 	//frc::RobotDrive drive{1 /*front left*/, 0 /*rear left*/, 2 /*front right*/, 3 /*rear right*/}; // HGM's 4 motor drive.
 
@@ -154,22 +158,22 @@ class Robot : public frc::SampleRobot
     {
 
         json macros = getDriveMacros();
-    	leftDriveSlave1->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
-    	leftDriveSlave2->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
-    	rightDriveSlave1->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
-    	rightDriveSlave2->SetControlMode(CANSpeedController::kFollower); //change control mode to follow mode
+    	leftDriveSlave1->SetControlMode(CTRE::MotorControl::ControlMode::kFollower); //change control mode to follow mode
+    	leftDriveSlave2->SetControlMode(CTRE::MotorControl::ControlMode::kFollower); //change control mode to follow mode
+    	rightDriveSlave1->SetControlMode(CTRE::MotorControl::ControlMode::kFollower); //change control mode to follow mode
+    	rightDriveSlave2->SetControlMode(CTRE::MotorControl::ControlMode::kFollower); //change control mode to follow mode
     	leftDriveSlave1->Set(1); //follow left motor #1 Talon SRX ID=1
     	leftDriveSlave2->Set(1); //follow left motor #1 Talon SRX ID=1
     	rightDriveSlave1->Set(4); //follow right motor #1 Talon SRX ID=4
     	rightDriveSlave2->Set(4); //follow right motor #1 Talon SRX ID=4
 
-    	leftDriveMaster->SetFeedbackDevice(CANTalon::FeedbackDevice::QuadEncoder);
+    	leftDriveMaster->SetFeedbackDevice(TalonSRX::FeedbackDevice::QuadEncoder);
     	leftDriveMaster->ConfigEncoderCodesPerRev(360);
     	leftDriveMaster->SetPosition(0); //set encoder to 0
-    	rightDriveSlave2->SetFeedbackDevice(CANTalon::FeedbackDevice::QuadEncoder);
+    	rightDriveSlave2->SetFeedbackDevice(TalonSRX::FeedbackDevice::QuadEncoder);
     	rightDriveSlave2->ConfigEncoderCodesPerRev(360);
     	rightDriveSlave2->SetPosition(0);
-    	shooterMotor->SetControlMode(CANSpeedController::kVoltage);
+    	shooterMotor->SetControlMode(CTRE::MotorControl::ControlMode::kVoltage);
 
 		this->print("RobotInit");
 
